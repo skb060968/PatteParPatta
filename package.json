@@ -1,0 +1,30 @@
+{
+    "name":  "patte-par-patta",
+    "version":  "1.0.0",
+    "description":  "Patte Par Patta - a multiplayer card game PWA",
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "vite --host",
+                    "build":  "vite build",
+                    "preview":  "vite preview",
+                    "test":  "vitest --run"
+                },
+    "dependencies":  {
+                         "firebase":  "^12.9.0"
+                     },
+    "devDependencies":  {
+                            "fast-check":  "latest",
+                            "jsdom":  "latest",
+                            "vite":  "^7.3.1",
+                            "vitest":  "latest"
+                        },
+    "keywords":  [
+                     "patte-par-patta",
+                     "card-game",
+                     "multiplayer",
+                     "firebase",
+                     "pwa"
+                 ],
+    "author":  "",
+    "license":  "MIT"
+}
