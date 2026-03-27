@@ -13,7 +13,13 @@ export function createGame(playerInfos, deckCount = 1) {
   }
   shuffle(deck);
 
-  const hands = dealCards(deck, playerInfos.length);
+  const numPlayers = playerInfos.length;
+  const cardsPerPlayer = Math.floor(deck.length / numPlayers);
+  const hands = dealCards(deck, numPlayers);
+
+  // Remainder cards go to the pile
+  const totalDealt = cardsPerPlayer * numPlayers;
+  const pile = deck.slice(totalDealt);
 
   const players = playerInfos.map((info, i) => ({
     name: info.name,
@@ -24,11 +30,14 @@ export function createGame(playerInfos, deckCount = 1) {
     connected: true,
   }));
 
+  // deckSize = total cards actually in play (dealt + pile)
+  const actualDeckSize = totalDealt + pile.length;
+
   return {
     players,
-    pile: [],
+    pile,
     currentPlayerIndex: 0,
-    deckSize: deckCount * 52,
+    deckSize: actualDeckSize,
     status: 'playing',
     winnerIndex: null,
   };
@@ -131,9 +140,14 @@ export function checkWinCondition(state) {
     .filter(p => !p.eliminated);
 
   if (activePlayers.length === 1) {
-    return { finished: true, winnerIndex: activePlayers[0].index };
+    // If the last player has only 0 or 1 card, it's a draw
+    if (activePlayers[0].hand.length <= 1) {
+      return { finished: true, winnerIndex: null, draw: true };
+    }
+    return { finished: true, winnerIndex: activePlayers[0].index, draw: false };
   }
-  return { finished: false, winnerIndex: null };
+
+  return { finished: false, winnerIndex: null, draw: false };
 }
 
 /**

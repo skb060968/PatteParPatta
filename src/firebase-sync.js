@@ -123,7 +123,7 @@ export async function joinRoom(roomCode, playerName, playerEmoji) {
     .map((key) => parseInt(key.replace('player_', ''), 10))
     .filter((n) => !isNaN(n));
 
-  if (existingIndices.length >= 4) {
+  if (existingIndices.length >= 6) {
     return { success: false, reason: 'Room is full' };
   }
 

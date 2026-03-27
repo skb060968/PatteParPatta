@@ -8,7 +8,41 @@
 
 const MUTE_KEY = 'ppp_muted';
 
+const SOUND_FILES = {
+  throw: '/sounds/throw.mp3',
+  capture: '/sounds/capture.mp3',
+};
+
 let audioCtxUnlocked = false;
+let audioCtx = null;
+const soundBuffers = {};
+
+/**
+ * Plays a sound effect by name.
+ * @param {string} name - 'throw' or 'capture'
+ */
+export function playSound(name) {
+  if (isMuted()) return;
+  const url = SOUND_FILES[name];
+  if (!url) return;
+
+  // Preferred: AudioContext buffer
+  if (audioCtx && audioCtx.state === 'running' && soundBuffers[name]) {
+    try {
+      const source = audioCtx.createBufferSource();
+      source.buffer = soundBuffers[name];
+      source.connect(audioCtx.destination);
+      source.start(0);
+      return;
+    } catch (_) {}
+  }
+
+  // Fallback: HTML Audio
+  try {
+    const audio = new Audio(url);
+    audio.play().catch(() => {});
+  } catch (_) {}
+}
 
 /**
  * Speaks a text string via Web Speech Synthesis.
@@ -25,9 +59,10 @@ function speak(text) {
   }
 
   return new Promise((resolve) => {
-    // 150ms delay before speaking (Safari fix from Tambola)
     setTimeout(() => {
       try {
+        // Resume speech synthesis (helps Safari/iOS)
+        if (speechSynthesis.paused) speechSynthesis.resume();
         speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = 0.95;
@@ -36,13 +71,26 @@ function speak(text) {
         utterance.onend = () => resolve();
         utterance.onerror = () => resolve();
         speechSynthesis.speak(utterance);
-        // Safety timeout in case onend never fires
         setTimeout(resolve, 4000);
       } catch (_) {
         resolve();
       }
     }, 150);
   });
+}
+
+/**
+ * Pre-warms speech synthesis on user gesture.
+ * Call this on every user tap to keep Safari happy.
+ */
+export function warmSpeech() {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  try {
+    const warm = new SpeechSynthesisUtterance('');
+    warm.volume = 0;
+    speechSynthesis.speak(warm);
+    speechSynthesis.cancel();
+  } catch (_) {}
 }
 
 /**
@@ -103,17 +151,22 @@ export function initAudio() {
 
   const unlock = () => {
     audioCtxUnlocked = true;
-    // Resume AudioContext if available (for future audio needs)
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (AudioCtx) {
       try {
-        const ctx = new AudioCtx();
-        if (ctx.state === 'suspended') {
-          ctx.resume().catch(() => {});
+        audioCtx = new AudioCtx();
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume().catch(() => {});
         }
-      } catch (_) {
-        // AudioContext not available — no-op
-      }
+        // Preload sound buffers
+        Object.entries(SOUND_FILES).forEach(([name, url]) => {
+          fetch(url)
+            .then((res) => res.arrayBuffer())
+            .then((buf) => audioCtx.decodeAudioData(buf))
+            .then((decoded) => { soundBuffers[name] = decoded; })
+            .catch(() => {});
+        });
+      } catch (_) {}
     }
   };
 

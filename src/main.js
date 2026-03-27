@@ -23,11 +23,12 @@ import {
   renderResults,
   renderLobbyPlayers,
   renderReadyIndicators,
+  setEventMessage,
 } from './ui.js';
 
 import { animateSlide, animateSweep, animateThrowToPile } from './animation-manager.js';
 import { renderCardFace } from './card-renderer.js';
-import { announceCapture, announceWin, initAudio, toggleMute, isMuted } from './voice-announcer.js';
+import { announceCapture, announceWin, initAudio, toggleMute, isMuted, warmSpeech, playSound } from './voice-announcer.js';
 import { deserializeCard } from './deck.js';
 import {
   createRoom,
@@ -49,6 +50,7 @@ import { ref, get, update, onValue, off, remove } from 'firebase/database';
 let state = null;
 let gameMode = 'offline'; // 'offline' | 'online'
 let isProcessingTurn = false; // prevents double-tap during animations
+let selectedPlayerCount = 2; // remembers last offline player count
 
 // Online state
 let roomCode = null;
@@ -69,7 +71,6 @@ const btnEndGame = document.getElementById('btn-end-game');
 const muteToggle = document.getElementById('mute-toggle');
 const btnPlayAgain = document.getElementById('btn-play-again');
 const btnHome = document.getElementById('btn-home');
-const playerHand = document.getElementById('player-hand');
 
 /* ======= HELPERS ======= */
 
@@ -155,7 +156,7 @@ function deserializeGameState(gameData, playersData) {
 
 function wireHomeScreen() {
   btnOffline.addEventListener('click', () => {
-    renderPlayerInputs(2); // default 2 players
+    renderPlayerInputs(selectedPlayerCount); // use last selected count
     showScreen('player-setup-screen');
   });
 
@@ -174,6 +175,7 @@ function wirePlayerSetup() {
       playerCountBtns.forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       const count = parseInt(btn.dataset.count, 10);
+      selectedPlayerCount = count;
       renderPlayerInputs(count);
     });
   });
@@ -232,6 +234,7 @@ async function handleOfflineCardTap(handIndex) {
 
   try {
     const currentPlayer = state.players[state.currentPlayerIndex];
+    setEventMessage('');
 
     // 1. Throw the card
     const { newState, captured } = throwCard(state, handIndex);
@@ -246,26 +249,39 @@ async function handleOfflineCardTap(handIndex) {
     }
 
     // 3. Animate: slide face-down card from deck to pile, then flip to reveal
-    const deckEl = playerHand.querySelector('.card');
+    const currentSlot = document.querySelector(`.player-slot[data-player-index="${state.currentPlayerIndex}"] .player-slot-deck .card`);
     const pileArea = document.getElementById('pile-area');
     const thrownCard = state.players[state.currentPlayerIndex].hand[handIndex];
 
-    if (deckEl && pileArea) {
-      const deckRect = deckEl.getBoundingClientRect();
+    playSound('throw');
+
+    if (currentSlot && pileArea) {
+      const deckRect = currentSlot.getBoundingClientRect();
       const pileRect = pileArea.getBoundingClientRect();
       const faceEl = renderCardFace(thrownCard);
       await animateThrowToPile(deckRect, pileRect, faceEl);
     }
 
-    // 4. If captured: sweep animation + voice announcement
+    // 4. If captured: shake pile + sound + sweep animation + voice
     if (captured) {
+      playSound('capture');
+
+      // Shake and glow the pile before sweeping
+      const pileCard = document.getElementById('pile-card');
+      if (pileCard) {
+        pileCard.classList.add('pile-capture-shake');
+        await new Promise((r) => setTimeout(r, 1000));
+        pileCard.classList.remove('pile-capture-shake');
+      }
+
       const pileEl = document.getElementById('pile-card');
-      const deckCard = playerHand.querySelector('.card');
+      const deckCard = document.querySelector(`.player-slot[data-player-index="${state.currentPlayerIndex}"] .player-slot-deck .card`);
       if (pileEl && deckCard) {
         const targetRect = deckCard.getBoundingClientRect();
         await animateSweep(pileEl, targetRect);
       }
       announceCapture(currentPlayer.name);
+      setEventMessage(`${currentPlayer.emoji} ${currentPlayer.name} captured the pile!`);
     }
 
     // 5. Update state
@@ -274,7 +290,7 @@ async function handleOfflineCardTap(handIndex) {
     // 6. Check elimination
     const thrower = state.players[state.currentPlayerIndex];
     if (thrower.eliminated) {
-      showToast(`${thrower.name} is out of cards!`);
+      setEventMessage(`${thrower.emoji} ${thrower.name} is out of cards!`);
     }
 
     // 7. Check win condition
@@ -283,11 +299,14 @@ async function handleOfflineCardTap(handIndex) {
       state.status = 'finished';
       state.winnerIndex = winResult.winnerIndex;
 
-      const winner = state.players[winResult.winnerIndex];
-      await announceWin(winner.name);
-
-      if (typeof confetti === 'function') {
-        confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+      if (winResult.draw) {
+        setEventMessage('Game is a draw!');
+      } else {
+        const winner = state.players[winResult.winnerIndex];
+        await announceWin(winner.name);
+        if (typeof confetti === 'function') {
+          confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+        }
       }
 
       renderResults(state);
@@ -299,12 +318,7 @@ async function handleOfflineCardTap(handIndex) {
     // 8. Advance turn
     state = advanceTurn(state);
 
-    // 9. Show turn transition (offline pass-and-play)
-    const nextPlayer = state.players[state.currentPlayerIndex];
-    await showTurnTransition(nextPlayer.name, nextPlayer.emoji);
-
-    // 10. Re-render gameplay for next player
-    showScreen('gameplay-screen');
+    // 9. Re-render gameplay with next player highlighted
     renderGameplay(state, state.currentPlayerIndex, true);
   } catch (err) {
     console.error('Error during card tap:', err);
@@ -361,19 +375,30 @@ async function handleOnlineCardTap(handIndex) {
     }
 
     // 5. Animate: slide face-down card from deck to pile, then flip
-    const deckEl = playerHand.querySelector('.card');
+    const currentSlot = document.querySelector(`.player-slot[data-player-index="${playerIndex}"] .player-slot-deck .card`);
     const pileArea = document.getElementById('pile-area');
 
-    if (deckEl && pileArea) {
-      const deckRect = deckEl.getBoundingClientRect();
+    playSound('throw');
+
+    if (currentSlot && pileArea) {
+      const deckRect = currentSlot.getBoundingClientRect();
       const pileRect = pileArea.getBoundingClientRect();
       const faceEl = renderCardFace(thrownCard);
       await animateThrowToPile(deckRect, pileRect, faceEl);
     }
 
     if (captured) {
+      playSound('capture');
+
+      const pileCard = document.getElementById('pile-card');
+      if (pileCard) {
+        pileCard.classList.add('pile-capture-shake');
+        await new Promise((r) => setTimeout(r, 600));
+        pileCard.classList.remove('pile-capture-shake');
+      }
+
       const pileEl = document.getElementById('pile-card');
-      const deckCard = playerHand.querySelector('.card');
+      const deckCard = document.querySelector(`.player-slot[data-player-index="${playerIndex}"] .player-slot-deck .card`);
       if (pileEl && deckCard) {
         const targetRect = deckCard.getBoundingClientRect();
         await animateSweep(pileEl, targetRect);
@@ -391,11 +416,14 @@ async function handleOnlineCardTap(handIndex) {
 
     // 8. Handle win
     if (winResult.finished) {
-      const winner = state.players[winResult.winnerIndex];
-      await announceWin(winner.name);
-
-      if (typeof confetti === 'function') {
-        confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+      if (winResult.draw) {
+        setEventMessage('Game is a draw!');
+      } else {
+        const winner = state.players[winResult.winnerIndex];
+        await announceWin(winner.name);
+        if (typeof confetti === 'function') {
+          confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+        }
       }
 
       renderResults(state);
@@ -418,9 +446,23 @@ async function handleOnlineCardTap(handIndex) {
 /* ======= CARD TAP HANDLER (delegated) ======= */
 
 function wireCardTapHandler() {
-  playerHand.addEventListener('click', (e) => {
+  // Listen on the gameplay screen for clicks on deck cards in player slots
+  const gameScreen = document.getElementById('gameplay-screen');
+  if (!gameScreen) return;
+
+  gameScreen.addEventListener('click', (e) => {
     const cardEl = e.target.closest('.card');
     if (!cardEl) return;
+
+    // Pre-warm speech synthesis on every tap (Safari/iOS fix)
+    warmSpeech();
+
+    // Only respond to cards inside player-slot-deck
+    const slotDeck = cardEl.closest('.player-slot-deck');
+    if (!slotDeck) return;
+
+    const slot = slotDeck.closest('.player-slot');
+    if (!slot || !slot.classList.contains('my-turn')) return;
 
     const handIndex = parseInt(cardEl.dataset.handIndex, 10);
     if (isNaN(handIndex)) return;
@@ -441,18 +483,9 @@ function wireEndGame() {
   btnEndGame.addEventListener('click', async () => {
     if (!state) return;
 
-    // End the game immediately — winner is the player with most cards
+    // End the game without declaring a winner
     state.status = 'finished';
-
-    let bestIdx = 0;
-    let bestCards = -1;
-    state.players.forEach((p, i) => {
-      if (p.hand.length > bestCards) {
-        bestCards = p.hand.length;
-        bestIdx = i;
-      }
-    });
-    state.winnerIndex = bestIdx;
+    state.winnerIndex = null;
 
     if (gameMode === 'online' && roomCode) {
       try {
@@ -806,28 +839,82 @@ function handleOnlineGameUpdate(gameData) {
 
   // Check if this is a new move from another player (not our own)
   if (state && newState.currentPlayerIndex !== state.currentPlayerIndex) {
-    // State has advanced — another player made a move
     const prevPlayerIdx = state.currentPlayerIndex;
     if (prevPlayerIdx !== playerIndex) {
-      // Animate the other player's move
       const prevPlayer = state.players[prevPlayerIdx];
       const newPrevPlayer = newState.players[prevPlayerIdx];
 
-      // Check if a capture happened (pile went from non-empty to empty)
-      const wasCaptured = state.pile.length > 0 && newState.pile.length === 0 &&
-        newPrevPlayer.bounty.length > prevPlayer.bounty.length;
+      const wasCaptured = state.pile.length > 0 && newState.pile.length === 0;
 
-      if (wasCaptured) {
-        announceCapture(prevPlayer.name);
+      // Update state first so re-render shows new pile card
+      state = newState;
+      renderGameplay(state, playerIndex, false);
+
+      // Now animate on the freshly rendered DOM
+      isProcessingTurn = true;
+
+      // Get the opponent's deck element (freshly rendered)
+      const opponentDeck = document.querySelector(`.player-slot[data-player-index="${prevPlayerIdx}"] .player-slot-deck .card`);
+      const pileArea = document.getElementById('pile-area');
+
+      // Determine thrown card for animation
+      let thrownCardForAnim = null;
+      if (!wasCaptured && state.pile.length > 0) {
+        thrownCardForAnim = state.pile[state.pile.length - 1];
       }
 
-      // Check if player was eliminated
-      if (!prevPlayer.eliminated && newPrevPlayer.eliminated) {
-        showToast(`${prevPlayer.name} is out of cards!`);
-      }
+      const runAnimation = async () => {
+        // Slide from opponent deck to pile
+        playSound('throw');
+        if (opponentDeck && pileArea && thrownCardForAnim) {
+          const deckRect = opponentDeck.getBoundingClientRect();
+          const pileRect = pileArea.getBoundingClientRect();
+          const faceEl = renderCardFace(thrownCardForAnim);
+          await animateThrowToPile(deckRect, pileRect, faceEl);
+        }
+
+        // Capture: shake + sound + sweep + announce
+        if (wasCaptured) {
+          playSound('capture');
+
+          const pileCard = document.getElementById('pile-card');
+          if (pileCard) {
+            pileCard.classList.add('pile-capture-shake');
+            await new Promise((r) => setTimeout(r, 600));
+            pileCard.classList.remove('pile-capture-shake');
+          }
+
+          announceCapture(prevPlayer.name);
+          setEventMessage(`${prevPlayer.emoji} ${prevPlayer.name} captured the pile!`);
+
+          const pileEl = document.getElementById('pile-card');
+          const deckAfter = document.querySelector(`.player-slot[data-player-index="${prevPlayerIdx}"] .player-slot-deck .card`);
+          if (pileEl && deckAfter) {
+            const targetRect = deckAfter.getBoundingClientRect();
+            await animateSweep(pileEl, targetRect);
+          }
+        }
+
+        // Elimination message
+        if (!prevPlayer.eliminated && newPrevPlayer.eliminated) {
+          setEventMessage(`${prevPlayer.emoji} ${prevPlayer.name} is out of cards!`);
+        }
+
+        // Re-render to clean up after animation
+        renderGameplay(state, playerIndex, false);
+        isProcessingTurn = false;
+      };
+
+      runAnimation();
+      return;
     }
   }
 
+  _finishOnlineUpdate(newState);
+}
+
+/** Finishes the online game update after animations complete. */
+function _finishOnlineUpdate(newState) {
   state = newState;
 
   // Check win condition
@@ -963,7 +1050,7 @@ function wireResults() {
   btnPlayAgain.addEventListener('click', async () => {
     if (gameMode === 'offline') {
       state = null;
-      renderPlayerInputs(2);
+      renderPlayerInputs(selectedPlayerCount);
       showScreen('player-setup-screen');
       return;
     }

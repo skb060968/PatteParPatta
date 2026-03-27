@@ -203,9 +203,9 @@ body {
 .emoji-picker,
 .emoji-options {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  max-width: 240px;
+  max-width: 200px;
   justify-items: center;
 }
 
@@ -418,7 +418,22 @@ body {
 }
 
 .animate-sweep {
-  animation: capture-sweep 800ms ease-in-out forwards;
+  animation: capture-sweep 1200ms ease-in-out forwards;
+}
+
+/* Capture shake + glow on pile before sweep */
+@keyframes pile-capture-shake {
+  0% { transform: translate(0, 0) scale(1); box-shadow: 0 0 0 rgba(243,156,18,0); }
+  15% { transform: translate(-4px, 0) scale(1.05); box-shadow: 0 0 15px rgba(243,156,18,0.7); }
+  30% { transform: translate(4px, 0) scale(1.05); box-shadow: 0 0 20px rgba(243,156,18,0.9); }
+  45% { transform: translate(-3px, 0) scale(1.03); }
+  60% { transform: translate(3px, 0) scale(1.03); box-shadow: 0 0 25px rgba(243,156,18,1); }
+  75% { transform: translate(-2px, 0) scale(1.01); }
+  100% { transform: translate(0, 0) scale(1); box-shadow: 0 0 15px rgba(243,156,18,0.5); }
+}
+
+.pile-capture-shake {
+  animation: pile-capture-shake 1000ms ease-in-out;
 }
 
 /* =========================================================
@@ -431,52 +446,70 @@ body {
   justify-content: space-between;
 }
 
-/* Opponents area (top) */
-.opponents-area {
+/* Players row: decks side by side */
+.players-row {
   width: 100%;
   display: flex;
-  flex-direction: column;
-  gap: var(--gap-sm);
+  justify-content: space-around;
+  gap: var(--gap-md);
 }
 
-.opponent-info {
+/* Individual player slot */
+.player-slot {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: var(--color-panel-bg);
+  gap: 4px;
+  padding: 6px;
   border-radius: 10px;
-  font-size: 0.85rem;
+  min-width: 80px;
+  transition: opacity 0.3s, box-shadow 0.3s;
+}
+
+.player-slot .player-slot-emoji { font-size: 1.3rem; }
+
+.player-slot .player-slot-name {
+  font-size: 0.75rem;
   font-weight: 700;
+  max-width: 80px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.opponent-info .opponent-emoji { font-size: 1.2rem; }
-.opponent-info .opponent-name { flex: 1; }
-.opponent-info .opponent-cards { opacity: 0.7; }
-.opponent-info .opponent-bounty { color: var(--color-accent); }
+.player-slot .player-slot-deck { position: relative; cursor: default; }
 
-/* Turn highlight (active player glow) */
-.opponent-info.active-turn {
-  box-shadow: 0 0 8px rgba(243,156,18,0.6), 0 0 16px rgba(243,156,18,0.3);
-  border: 2px solid var(--color-accent);
+.player-slot .player-slot-count {
+  font-size: 0.7rem;
+  font-weight: 800;
+  opacity: 0.8;
 }
 
-/* Eliminated player */
-.opponent-info.eliminated {
-  opacity: 0.4;
+/* Active turn glow */
+.player-slot.active-turn {
+  box-shadow: 0 0 10px rgba(243,156,18,0.7), 0 0 20px rgba(243,156,18,0.3);
+  background: rgba(243,156,18,0.1);
 }
 
-.opponent-info.eliminated .opponent-name {
-  text-decoration: line-through;
-}
+.player-slot.active-turn .player-slot-name { color: var(--color-accent); }
 
-/* Pile area (center) */
+/* Eliminated */
+.player-slot.eliminated { opacity: 0.35; }
+.player-slot.eliminated .player-slot-name { text-decoration: line-through; }
+
+/* Tappable deck for current player */
+.player-slot.my-turn .player-slot-deck { cursor: pointer; }
+.player-slot.my-turn .player-slot-deck:hover { transform: translateY(-3px); }
+.player-slot.my-turn .player-slot-deck:active { transform: translateY(-1px) scale(0.97); }
+
+/* Pile area */
 .pile-area {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--gap-sm);
-  padding: 16px 0;
+  padding: 12px 0;
 }
 
 .pile-card {
@@ -493,59 +526,14 @@ body {
   font-weight: 700;
 }
 
-/* Turn indicator */
-.turn-indicator {
+/* Event message bar */
+.event-bar {
   text-align: center;
-  font-size: 1rem;
-  font-weight: 800;
-  padding: 6px 12px;
-  background: var(--color-panel-bg);
-  border-radius: 10px;
-  color: var(--color-accent);
-}
-
-/* Player hand (bottom, scrollable) */
-.player-hand {
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 12px 4px;
-}
-
-.player-hand::-webkit-scrollbar { height: 4px; }
-.player-hand::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
-
-/* Player deck (single face-down card with count) */
-.player-deck {
-  position: relative;
-}
-
-.deck-count-badge {
-  position: absolute;
-  bottom: -8px;
-  right: -8px;
-  background: var(--color-accent);
-  color: #1a1a1a;
-  font-size: 0.75rem;
-  font-weight: 800;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-}
-
-/* Player stats */
-.player-stats {
-  display: flex;
-  gap: var(--gap-lg);
-  justify-content: center;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 700;
-  opacity: 0.85;
+  min-height: 24px;
+  padding: 4px 8px;
+  color: var(--color-accent);
 }
 
 /* =========================================================

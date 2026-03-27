@@ -51,7 +51,7 @@ export function showToast(message, duration = 1500) {
 // =========================================================
 
 /** Default emoji set for avatar selection */
-const DEFAULT_EMOJIS = ['😀', '😎', '🤩', '😇', '🥳', '😏', '🤠', '😺'];
+const DEFAULT_EMOJIS = ['👲', '🧑‍💼', '👩‍💼', '🥷', '🧙', '🧝‍♀️'];
 
 /**
  * Dynamically creates name input + emoji picker rows in #player-inputs.
@@ -169,60 +169,89 @@ export function getPlayerSetupData() {
 // =========================================================
 
 /**
- * Renders the full gameplay screen from game state.
+ * Renders the full gameplay screen with all player decks, pile, and event bar.
  *
  * @param {object} state - GameState from game-engine.js
  * @param {number} localPlayerIndex - Index of the player viewing the screen
  * @param {boolean} isOffline - true for offline pass-and-play mode
  */
 export function renderGameplay(state, localPlayerIndex, isOffline) {
-  _renderOpponents(state, localPlayerIndex, isOffline);
+  const topRow = document.getElementById('top-players');
+  const bottomRow = document.getElementById('bottom-players');
+  if (!topRow || !bottomRow) return;
+
+  topRow.innerHTML = '';
+  bottomRow.innerHTML = '';
+
+  // Split players symmetrically: half on top, half on bottom
+  const n = state.players.length;
+  const topCount = Math.floor(n / 2);
+
+  state.players.forEach((player, i) => {
+    const slot = _createPlayerSlot(player, i, state, localPlayerIndex, isOffline);
+    if (i < topCount) {
+      topRow.appendChild(slot);
+    } else {
+      bottomRow.appendChild(slot);
+    }
+  });
+
   _renderPile(state);
-  _renderTurnIndicator(state, localPlayerIndex);
-  _renderPlayerHand(state, localPlayerIndex, isOffline);
-  _renderPlayerStats(state, localPlayerIndex);
 }
 
 /**
- * Renders opponent info rows in #opponents-area.
+ * Creates a player slot element with emoji, deck, name, and card count.
  */
-function _renderOpponents(state, localPlayerIndex, isOffline) {
-  const area = document.getElementById('opponents-area');
-  if (!area) return;
+function _createPlayerSlot(player, playerIdx, state, localPlayerIndex, isOffline) {
+  const slot = document.createElement('div');
+  slot.className = 'player-slot';
+  slot.dataset.playerIndex = playerIdx;
 
-  area.innerHTML = '';
+  if (playerIdx === state.currentPlayerIndex) {
+    slot.classList.add('active-turn');
+  }
+  if (player.eliminated) {
+    slot.classList.add('eliminated');
+  }
 
-  state.players.forEach((player, i) => {
-    if (i === localPlayerIndex) return; // skip local player
+  // In offline mode, the current player's deck is tappable
+  // In online mode, only the local player's deck is tappable when it's their turn
+  const isTappable = isOffline
+    ? (playerIdx === state.currentPlayerIndex)
+    : (playerIdx === localPlayerIndex && playerIdx === state.currentPlayerIndex);
 
-    const row = document.createElement('div');
-    row.className = 'opponent-info';
+  if (isTappable) {
+    slot.classList.add('my-turn');
+  }
 
-    if (i === state.currentPlayerIndex) {
-      row.classList.add('active-turn');
-    }
-    if (player.eliminated) {
-      row.classList.add('eliminated');
-    }
+  const emoji = document.createElement('span');
+  emoji.className = 'player-slot-emoji';
+  emoji.textContent = player.emoji;
 
-    const emoji = document.createElement('span');
-    emoji.className = 'opponent-emoji';
-    emoji.textContent = player.emoji;
+  const deckWrapper = document.createElement('div');
+  deckWrapper.className = 'player-slot-deck';
 
-    const name = document.createElement('span');
-    name.className = 'opponent-name';
-    name.textContent = player.name;
+  if (!player.eliminated && player.hand.length > 0) {
+    const deckCard = renderCardBack();
+    deckCard.dataset.handIndex = '0';
+    deckCard.dataset.playerIndex = playerIdx;
+    deckWrapper.appendChild(deckCard);
+  }
 
-    const cards = document.createElement('span');
-    cards.className = 'opponent-cards';
-    cards.textContent = `🃏 ${player.hand.length}`;
+  const name = document.createElement('span');
+  name.className = 'player-slot-name';
+  name.textContent = player.name;
 
-    row.appendChild(emoji);
-    row.appendChild(name);
-    row.appendChild(cards);
+  const count = document.createElement('span');
+  count.className = 'player-slot-count';
+  count.textContent = player.eliminated ? 'Out' : `🃏 ${player.hand.length}`;
 
-    area.appendChild(row);
-  });
+  slot.appendChild(emoji);
+  slot.appendChild(deckWrapper);
+  slot.appendChild(name);
+  slot.appendChild(count);
+
+  return slot;
 }
 
 /**
@@ -249,68 +278,12 @@ function _renderPile(state) {
 }
 
 /**
- * Renders the turn indicator with current player's emoji + name.
+ * Sets an event message in the event bar.
+ * @param {string} message - The event message to display
  */
-function _renderTurnIndicator(state, localPlayerIndex) {
-  const indicator = document.getElementById('turn-indicator');
-  if (!indicator) return;
-
-  const currentPlayer = state.players[state.currentPlayerIndex];
-  if (state.currentPlayerIndex === localPlayerIndex) {
-    indicator.textContent = `▶ ${currentPlayer.emoji} Your turn!`;
-  } else {
-    indicator.textContent = `▶ ${currentPlayer.emoji} ${currentPlayer.name}'s turn`;
-  }
-}
-
-/**
- * Renders the player's hand as a single face-down deck.
- * Player taps the deck to throw the top card (index 0).
- * Shows card count on the deck.
- */
-function _renderPlayerHand(state, localPlayerIndex, isOffline) {
-  const handContainer = document.getElementById('player-hand');
-  if (!handContainer) return;
-
-  handContainer.innerHTML = '';
-
-  const playerIndex = isOffline ? state.currentPlayerIndex : localPlayerIndex;
-  const player = state.players[playerIndex];
-
-  if (!player || player.eliminated || player.hand.length === 0) return;
-
-  // Single face-down deck card
-  const deckEl = renderCardBack();
-  deckEl.dataset.handIndex = '0'; // always throw the top card
-  deckEl.classList.add('player-deck');
-  deckEl.setAttribute('aria-label', `Your deck - ${player.hand.length} cards. Tap to throw.`);
-  deckEl.style.cursor = 'pointer';
-
-  // Card count overlay on the deck
-  const countBadge = document.createElement('span');
-  countBadge.className = 'deck-count-badge';
-  countBadge.textContent = player.hand.length;
-  deckEl.appendChild(countBadge);
-
-  handContainer.appendChild(deckEl);
-}
-
-/**
- * Updates hand count and bounty count displays.
- */
-function _renderPlayerStats(state, localPlayerIndex) {
-  const handCount = document.getElementById('hand-count');
-  const bountyCount = document.getElementById('bounty-count');
-
-  const player = state.players[localPlayerIndex];
-  if (!player) return;
-
-  if (handCount) {
-    handCount.textContent = `Hand: ${player.hand.length}`;
-  }
-  if (bountyCount) {
-    bountyCount.hidden = true;
-  }
+export function setEventMessage(message) {
+  const bar = document.getElementById('event-bar');
+  if (bar) bar.textContent = message;
 }
 
 
@@ -367,9 +340,8 @@ export function renderResults(state) {
   if (winnerDisplay) {
     winnerDisplay.innerHTML = '';
 
-    const winner = state.winnerIndex != null ? state.players[state.winnerIndex] : null;
-
-    if (winner) {
+    if (state.winnerIndex != null) {
+      const winner = state.players[state.winnerIndex];
       const emojiEl = document.createElement('div');
       emojiEl.className = 'winner-emoji';
       emojiEl.textContent = winner.emoji;
@@ -380,6 +352,11 @@ export function renderResults(state) {
 
       winnerDisplay.appendChild(emojiEl);
       winnerDisplay.appendChild(nameEl);
+    } else {
+      const drawEl = document.createElement('div');
+      drawEl.className = 'winner-name';
+      drawEl.textContent = 'Game ended — no winner';
+      winnerDisplay.appendChild(drawEl);
     }
   }
 

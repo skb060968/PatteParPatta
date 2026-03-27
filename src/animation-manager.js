@@ -105,7 +105,7 @@ export function animateSweep(pileEl, targetRect) {
       pileEl.style.removeProperty('--sweep-x');
       pileEl.style.removeProperty('--sweep-y');
       resolve();
-    }, 800);
+    }, 1200);
   });
 }
 
