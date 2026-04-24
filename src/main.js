@@ -216,6 +216,7 @@ function wirePlayerSetup() {
 
 function startOfflineGame() {
   showScreen('gameplay-screen');
+  setEventMessage('');
 
   // Show end game button for offline
   if (btnEndGame) btnEndGame.hidden = false;
@@ -807,6 +808,7 @@ function wireOnlineLobby() {
 /** Starts the online game view. */
 function startOnlineGame() {
   showScreen('gameplay-screen');
+  setEventMessage('');
 
   // Show end game button only for host
   if (btnEndGame) btnEndGame.hidden = !isHost;
